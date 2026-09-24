@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Badge Print Studio - Counter Deploy TFI</title>
+  
+  <!-- 100% OFFLINE LIBRARY LINK -->
+  <script src="html5-qrcode.min.js" type="text/javascript"></script>
+  <script src="qrc:///qtwebchannel/qwebchannel.js" type="text/javascript"></script>
+  
+  <style>
+    :root { --bg: #0f172a; --card-bg: #1e293b; --accent: #2563eb; --text: #f8fafc; --text-muted: #94a3b8; --border: #334155; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+    
+    .sidebar { width: 440px; min-width: 440px; height: 100%; background: var(--card-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; padding: 20px; gap: 18px; }
+    .section-title { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; }
+    
+    .scanner-box { position: relative; width: 100%; height: 180px; border-radius: 8px; overflow: hidden; background: #000; border: 1px solid var(--border); }
+    #reader { width: 100%; height: 100%; }
+    
+    .scan-status { position: absolute; bottom: 8px; left: 8px; right: 8px; background: rgba(15, 23, 42, 0.95); font-size: 0.75rem; padding: 6px 8px; border-radius: 4px; text-align: center; color: #38bdf8; font-weight: bold; z-index: 10; }
+    .scan-error { color: #ef4444; }
+    
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 0.75rem; color: var(--text-muted); }
+    input, select { background: #0f172a; border: 1px solid var(--border); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 0.85rem; outline: none; }
+    input:focus, select:focus { border-color: var(--accent); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .row-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; }
+    
+    .btn-print { background: #10b981; color: white; border: none; padding: 14px; border-radius: 8px; font-size: 1.05rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); transition: background 0.15s; margin-top: 10px; }
+    .btn-print:hover { background: #059669; }
+    .print-hint { text-align: center; font-size: 0.75rem; color: var(--text-muted); margin-top: -10px; }
+    
+    .preview-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0b1120; padding: 24px; overflow: auto; }
+    .preview-label { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px; }
+    
+    /* Strict dimensions on screen */
+    .badge-card { width: 4in; height: 6in; min-width: 4in; min-height: 6in; background: #ffffff; color: #000000; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); position: relative; border: 1px dashed #94a3b8; box-sizing: border-box; overflow: hidden; }
+    .badge-inner { width: 100%; height: 100%; display: flex; flex-direction: column; box-sizing: border-box; }
+    
+    /* Strict Typography: Font Weight exactly 500, no bold */
+    .badge-company, .badge-name, .badge-designation { 
+      font-weight: 500; 
+      word-break: break-word; 
+      width: 100%; /* Forces perfect horizontal centering bounds */
+    }
+    .badge-company { text-transform: uppercase; letter-spacing: 0.05em; }
+
+    /* --- STRICT PRINTER RULES FOR CANON 4x6 (10x15cm) --- */
+    @media print {
+      @page { size: 4in 6in; margin: 0; }
+      html, body { width: 4in; height: 6in; margin: 0 !important; padding: 0 !important; overflow: hidden; }
+      
+      .sidebar, .preview-label, .print-hint { display: none !important; }
+      .preview-stage { padding: 0 !important; background: transparent !important; display: block !important; width: 4in; height: 6in; }
+      
+      /* Locks exactly to the paper boundaries */
+      .badge-card { 
+        position: absolute; top: 0; left: 0; 
+        width: 100% !important; height: 100% !important; 
+        border: none !important; box-shadow: none !important; margin: 0 !important; 
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="sidebar">
+    <div>
+      <div class="section-title">Camera QR Scanner</div>
+      <div class="scanner-box">
+        <div id="reader"></div>
+        <div class="scan-status" id="scan-status">Initializing camera...</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Extracted Details</div>
+      <div class="form-group"><label>Company Name</label><input type="text" id="inp-company" placeholder="e.g. Acme Industries" /></div>
+      <div class="form-group"><label>Person Name</label><input type="text" id="inp-name" placeholder="e.g. Sarah Jenkins" /></div>
+      <div class="form-group"><label>Designation / Title</label><input type="text" id="inp-designation" placeholder="e.g. Chief Technical Officer" /></div>
+    </div>
+
+    <div>
+      <div class="section-title">Typography & Layout (Auto-Saved)</div>
+      <div class="row">
+        <div class="form-group">
+          <label>Font Family</label>
+          <select id="ctrl-font">
+            <option value="Arial, sans-serif" selected>Arial</option>
+            <option value="sans-serif">Sans-Serif (Modern)</option>
+            <option value="serif">Serif (Formal)</option>
+            <option value="monospace">Monospace (Tech)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Vertical Distribution</label>
+          <select id="ctrl-valign">
+            <option value="center" selected>Grouped at Center</option>
+            <option value="space-between">Evenly Spaced</option>
+            <option value="flex-start">Top Aligned</option>
+          </select>
+        </div>
+      </div>
+      
+      <div class="row-3" style="margin-top: 8px;">
+        <!-- ALL FONT SIZES SET TO 15 DEFAULT -->
+        <div class="form-group"><label>Comp. Size</label><input type="number" id="ctrl-size-comp" value="15" min="8" max="48" /></div>
+        <div class="form-group"><label>Name Size</label><input type="number" id="ctrl-size-name" value="15" min="12" max="64" /></div>
+        <div class="form-group"><label>Desig. Size</label><input type="number" id="ctrl-size-desig" value="15" min="8" max="36" /></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-title">Advanced Margins (Auto-Saved)</div>
+      <div class="row-4">
+        <div class="form-group"><label>Top</label><input type="number" id="ctrl-pad-top" value="8" min="0" max="70" title="Top Margin (mm)" /></div>
+        <div class="form-group"><label>Bottom</label><input type="number" id="ctrl-pad-bottom" value="14" min="0" max="70" title="Bottom Margin (mm)" /></div>
+        <div class="form-group"><label>Left</label><input type="number" id="ctrl-pad-left" value="5" min="0" max="40" title="Left Margin (mm)" /></div>
+        <div class="form-group"><label>Right</label><input type="number" id="ctrl-pad-right" value="8" min="0" max="40" title="Right Margin (mm)" /></div>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <div class="form-group">
+          <label>Line Spacing</label>
+          <input type="number" step="0.1" id="ctrl-lineheight" value="2.0" min="0.8" max="3.0" />
+        </div>
+        <div class="form-group">
+          <label>Text Align</label>
+          <select id="ctrl-align">
+            <option value="center" selected>Center</option>
+            <option value="left">Left</option>
+            <option value="right">Right</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="printer-select">Printer</label>
+      <select id="printer-select" disabled>
+        <option value="">Loading printers...</option>
+      </select>
+    </div>
+    <button class="btn-print" onclick="window.print()">Print Badge (4x6 / 10x15cm)</button>
+    <div class="print-hint" id="print-hint">Select a printer above. Press <b>Enter</b> to print.</div>
+  </div>
+
+  <div class="preview-stage">
+    <div class="preview-label">Live 1:1 Preview (4" x 6" CANON PIXMA)</div>
+    <div class="badge-card" id="badge-card">
+      <div class="badge-inner" id="badge-inner">
+        <div class="badge-company" id="view-company">COMPANY NAME</div>
+        <div class="badge-name" id="view-name">PERSON NAME</div>
+        <div class="badge-designation" id="view-designation">DESIGNATION</div>
+      </div>
+    </div>
+  </div>
+
+  
+  <script>
+    const printerSelect = document.getElementById('printer-select');
+    const printHint = document.getElementById('print-hint');
+
+    function initializePrinterSelection() {
+      if (typeof qt === 'undefined' || typeof QWebChannel === 'undefined') {
+        printerSelect.innerHTML = '<option value="">Printer selection is available in the desktop app</option>';
+        return;
+      }
+      new QWebChannel(qt.webChannelTransport, (channel) => {
+        const bridge = channel.objects.printerBridge;
+        bridge.getPrinters((printers) => {
+          printerSelect.innerHTML = '';
+          if (!printers || printers.length === 0) {
+            printerSelect.innerHTML = '<option value="">No printers found</option>';
+            printHint.textContent = 'No printers are installed.';
+            return;
+          }
+          printers.forEach((name) => printerSelect.add(new Option(name, name)));
+          bridge.getSelectedPrinter((selected) => {
+            if (printers.includes(selected)) printerSelect.value = selected;
+            printerSelect.disabled = false;
+          });
+        });
+        printerSelect.addEventListener('change', () => {
+          bridge.setSelectedPrinter(printerSelect.value);
+        });
+        window.onPrinterError = (message) => { printHint.textContent = message; };
+      });
+    }
+
+    const scanStatus = document.getElementById('scan-status');
+
+    // Data Elements
+    const inpCompany = document.getElementById('inp-company');
+    const inpName = document.getElementById('inp-name');
+    const inpDesig = document.getElementById('inp-designation');
+    
+    // View Elements
+    const viewCompany = document.getElementById('view-company');
+    const viewName = document.getElementById('view-name');
+    const viewDesig = document.getElementById('view-designation');
+    const badgeInner = document.getElementById('badge-inner');
+    
+    // Control Elements
+    const ctrlFont = document.getElementById('ctrl-font'), ctrlValign = document.getElementById('ctrl-valign');
+    const ctrlSizeComp = document.getElementById('ctrl-size-comp'), ctrlSizeName = document.getElementById('ctrl-size-name'), ctrlSizeDesig = document.getElementById('ctrl-size-desig');
+    const ctrlPadTop = document.getElementById('ctrl-pad-top'), ctrlPadBottom = document.getElementById('ctrl-pad-bottom');
+    const ctrlPadLeft = document.getElementById('ctrl-pad-left'), ctrlPadRight = document.getElementById('ctrl-pad-right');
+    const ctrlLineHeight = document.getElementById('ctrl-lineheight'), ctrlAlign = document.getElementById('ctrl-align');
+
+    const controlElements = [
+      ctrlFont, ctrlValign, ctrlSizeComp, ctrlSizeName, ctrlSizeDesig, 
+      ctrlPadTop, ctrlPadBottom, ctrlPadLeft, ctrlPadRight, 
+      ctrlLineHeight, ctrlAlign
+    ];
+
+    // --- 1. LOCAL STORAGE: Load & Save Settings ---
+    // Key updated to v4 to force the new default settings on all 6 computers
+    function loadSettings() {
+      const saved = localStorage.getItem('badgeAppConfig4x6_v4');
+      if (saved) {
+        const config = JSON.parse(saved);
+        if(config.font) ctrlFont.value = config.font;
+        if(config.valign) ctrlValign.value = config.valign;
+        if(config.sizeComp) ctrlSizeComp.value = config.sizeComp;
+        if(config.sizeName) ctrlSizeName.value = config.sizeName;
+        if(config.sizeDesig) ctrlSizeDesig.value = config.sizeDesig;
+        if(config.padTop) ctrlPadTop.value = config.padTop;
+        if(config.padBottom) ctrlPadBottom.value = config.padBottom;
+        if(config.padLeft) ctrlPadLeft.value = config.padLeft;
+        if(config.padRight) ctrlPadRight.value = config.padRight;
+        if(config.lineHeight) ctrlLineHeight.value = config.lineHeight;
+        if(config.align) ctrlAlign.value = config.align;
+      }
+    }
+
+    function saveSettings() {
+      const config = {
+        font: ctrlFont.value, valign: ctrlValign.value,
+        sizeComp: ctrlSizeComp.value, sizeName: ctrlSizeName.value, sizeDesig: ctrlSizeDesig.value,
+        padTop: ctrlPadTop.value, padBottom: ctrlPadBottom.value, 
+        padLeft: ctrlPadLeft.value, padRight: ctrlPadRight.value,
+        lineHeight: ctrlLineHeight.value, align: ctrlAlign.value
+      };
+      localStorage.setItem('badgeAppConfig4x6_v4', JSON.stringify(config));
+    }
+
+    // --- 2. UPDATE PREVIEW SCREEN ---
+    function updateBadge() {
+      viewCompany.textContent = inpCompany.value.trim() || 'COMPANY NAME';
+      viewName.textContent = inpName.value.trim() || 'PERSON NAME';
+      viewDesig.textContent = inpDesig.value.trim() || 'DESIGNATION';
+      
+      badgeInner.style.fontFamily = ctrlFont.value;
+      badgeInner.style.justifyContent = ctrlValign.value;
+      badgeInner.style.textAlign = ctrlAlign.value;
+      
+      // Apply exact margins independently
+      badgeInner.style.paddingTop = `${ctrlPadTop.value}mm`;
+      badgeInner.style.paddingBottom = `${ctrlPadBottom.value}mm`;
+      badgeInner.style.paddingLeft = `${ctrlPadLeft.value}mm`;
+      badgeInner.style.paddingRight = `${ctrlPadRight.value}mm`;
+      
+      viewCompany.style.fontSize = `${ctrlSizeComp.value}pt`;
+      viewName.style.fontSize = `${ctrlSizeName.value}pt`;
+      viewDesig.style.fontSize = `${ctrlSizeDesig.value}pt`;
+      
+      viewCompany.style.lineHeight = ctrlLineHeight.value;
+      viewName.style.lineHeight = ctrlLineHeight.value;
+      viewDesig.style.lineHeight = ctrlLineHeight.value;
+
+      saveSettings();
+    }
+
+    // Attach event listeners to all inputs
+    [inpCompany, inpName, inpDesig, ...controlElements].forEach(el => el.addEventListener('input', updateBadge));
+
+    // --- 3. ROBUST JSON PARSER ---
+    function parseAndFill(raw) {
+      try {
+        let safeRaw = raw.replace(/\n/g, ' ').replace(/\r/g, '');
+        const data = JSON.parse(safeRaw);
+        inpName.value = data.name || '';
+        inpCompany.value = data.company || '';
+        inpDesig.value = data.designation || '';
+      } catch (err) {
+        const nameMatch = raw.match(/"name"\s*:\s*"([^"]+)"/i);
+        const compMatch = raw.match(/"company"\s*:\s*"([^"]+)"/i);
+        const desigMatch = raw.match(/"designation"\s*:\s*"([^"]+)"/i);
+        if(nameMatch) inpName.value = nameMatch[1].replace(/\n/g, ' ');
+        if(compMatch) inpCompany.value = compMatch[1].replace(/\n/g, ' ');
+        if(desigMatch) inpDesig.value = desigMatch[1].replace(/\n/g, ' ');
+      }
+      updateBadge();
+    }
+
+    // --- 4. SCANNER ENGINE ---
+    function startScanner() {
+      // Check if Html5Qrcode is loaded (handles missing local file gracefully)
+      if (typeof Html5Qrcode === 'undefined') {
+        scanStatus.innerHTML = `<span class='scan-error'>Error: html5-qrcode.min.js file is missing from the folder.</span>`;
+        return;
+      }
+
+      const html5QrCode = new Html5Qrcode("reader");
+      const config = { fps: 15 };
+
+      html5QrCode.start(
+        { facingMode: "environment" }, 
+        config,
+        (decodedText) => {
+          scanStatus.style.color = "#10b981";
+          scanStatus.textContent = "✓ Details Fetched!";
+          parseAndFill(decodedText);
+          setTimeout(() => { 
+            scanStatus.style.color = "#38bdf8"; 
+            scanStatus.textContent = "Scanner ready — Hold QR in view"; 
+          }, 2500);
+        },
+        (errorMessage) => { /* ignore */ }
+      ).then(() => {
+        scanStatus.textContent = "Scanner ready — Hold QR in view";
+      }).catch((err) => {
+        scanStatus.innerHTML = `<span class='scan-error'>Camera blocked. Please allow permissions.</span>`;
+      });
+    }
+
+    // --- 5. ENTER TO PRINT SHORTCUT ---
+    document.addEventListener('keydown', (e) => {
+      // Print when Enter is pressed, unless interacting with a dropdown
+      if (e.key === 'Enter' && e.target.tagName !== 'SELECT') {
+        e.preventDefault(); 
+        window.print();
+      }
+    });
+
+    // --- INITIALIZE ---
+    window.addEventListener('load', () => {
+      initializePrinterSelection();
+      loadSettings();
+      updateBadge(); 
+      startScanner();
+    });
+  </script>
+</body>
+</html>
